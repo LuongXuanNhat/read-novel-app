@@ -1,13 +1,13 @@
 # 📚 Ứng dụng Đọc Truyện Offline
 
-```{=html}
+
 <p align="center">
-```
+
 **Đọc truyện miễn phí • Không quảng cáo • Hoạt động hoàn toàn offline**
 
-```{=html}
+
 </p>
-```
+
 
 ------------------------------------------------------------------------
 
@@ -22,23 +22,20 @@ sách chương để bạn lựa chọn tải về và đọc ngoại tuyến.
 
 ## 📱 Hình ảnh ứng dụng
 
-```{=html}
+
 <p align="center">
-```
-`<img src="a3.jpg" width="220"/>`{=html}
-`<img src="a4.jpg" width="220"/>`{=html}
-```{=html}
+
+<img src="a3.jpg" width="220"/>
+<img src="a4.jpg" width="220"/>
+
 </p>
-```
-```{=html}
+
 <p align="center">
-```
-`<img src="a1.jpg" width="220"/>`{=html}
-`<img src="a2.jpg" width="220"/>`{=html}
-```{=html}
+
+<img src="a1.jpg" width="220"/>
+<img src="a2.jpg" width="220"/>
+
 </p>
-```
-> Thay đường dẫn ảnh theo thư mục của bạn.
 
 ------------------------------------------------------------------------
 
@@ -122,7 +119,7 @@ Thêm vào Truyện của tôi (Không bắt buộc)
 
 -   Flutter
 -   Dart
--   SQLite / Isar (tùy cấu hình)
+-   Isar 
 -   HTTP Crawling
 -   Local Storage
 

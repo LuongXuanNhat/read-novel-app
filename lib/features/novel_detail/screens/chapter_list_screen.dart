@@ -178,13 +178,21 @@ class _ChapterListScreenState extends State<ChapterListScreen> {
                 ],
               ),
               const SizedBox(height: 10),
-              const Text('Lưu ý: Tải tối đa 500 chương/lần', style: TextStyle(color: Colors.red, fontSize: 12, fontStyle: FontStyle.italic)),
+              const Text('Lưu ý: Hệ thống sẽ tự động bỏ qua các chương đã tải trước đó.', style: TextStyle(color: Colors.blue, fontSize: 12, fontStyle: FontStyle.italic)),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('Hủy', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _executeDownload(1, _chapters.length);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+              child: const Text('Tải toàn bộ'),
             ),
             ElevatedButton(
               onPressed: () {
@@ -200,15 +208,11 @@ class _ChapterListScreenState extends State<ChapterListScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Khoảng chương không hợp lệ')));
                   return;
                 }
-                if (end - start + 1 > 500) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chỉ được tải tối đa 500 chương mỗi lần')));
-                  return;
-                }
 
                 // 1. Đóng Hộp thoại
                 Navigator.pop(context);
 
-                // 2. Chạy hàm bắt đầu tải (Hàm này chúng ta sẽ viết ở bước sau)
+                // 2. Chạy hàm bắt đầu tải
                 _executeDownload(start, end);
               },
               style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),

@@ -2,7 +2,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter__first_app/core/utils/notification_service.dart';
 import 'package:flutter__first_app/features/home/screens/main_tab_screen.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'firebase_options.dart';
 import 'package:flutter/material.dart';
 import 'data/local_database/isar_service.dart';
@@ -16,9 +15,6 @@ void main() async {
 
   // 1. Khởi tạo Notification
   await NotificationService().init();
-
-  // 2. Xin quyền gửi thông báo (Quan trọng cho Android 13+)
-  await Permission.notification.request();
 
   runApp(const MyApp());
 }

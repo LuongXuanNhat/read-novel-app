@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../data/local_database/isar_models.dart';
 import '../../../data/local_database/isar_service.dart';
@@ -48,11 +49,42 @@ class _FavoriteNovelsScreenState extends State<FavoriteNovelsScreen> {
           itemCount: _novels.length,
           itemBuilder: (context, index) {
             final novel = _novels[index];
+            final isLocal = novel.coverUrl.isNotEmpty && File(novel.coverUrl).existsSync();
+            final coverUrl = novel.coverUrl.isNotEmpty && !isLocal
+                ? (novel.coverUrl.startsWith('http')
+                    ? novel.coverUrl
+                    : 'https://${novel.domain}${novel.coverUrl}')
+                : '';
+
             return Card(
               margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               child: ListTile(
                 leading: novel.coverUrl.isNotEmpty
-                    ? Image.network(novel.coverUrl, width: 40, height: 60, fit: BoxFit.cover)
+                    ? SizedBox(
+                        width: 40,
+                        height: 60,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: isLocal
+                              ? Image.file(
+                                  File(novel.coverUrl),
+                                  fit: BoxFit.cover,
+                                )
+                              : Image.network(
+                                  coverUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return Container(
+                                      color: Colors.grey.shade300,
+                                      child: const Icon(
+                                        Icons.book,
+                                        color: Colors.grey,
+                                      ),
+                                    );
+                                  },
+                                ),
+                        ),
+                      )
                     : const Icon(Icons.book, size: 40),
                 title: Text(novel.title, style: const TextStyle(fontWeight: FontWeight.bold)),
                 subtitle: Text('Đang đọc: Chương ${novel.lastReadChapterIndex}'),

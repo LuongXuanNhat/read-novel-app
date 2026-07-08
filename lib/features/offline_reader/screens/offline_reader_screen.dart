@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../data/local_database/isar_models.dart';
 import '../../../data/local_database/isar_service.dart';
@@ -24,6 +25,13 @@ class _OfflineReaderScreenState extends State<OfflineReaderScreen> {
   bool _isLoading = true;
   Timer? _saveDebounce;
 
+  List<ChapterLocal> _chapters = [];
+  double _scrollPercent = 0.0;
+  bool _isDragging = false;
+
+  double _maxOverscrollTop = 0.0;
+  double _maxOverscrollBottom = 0.0;
+
   // --- QUẢN LÝ CUỘN (SCROLL) ---
   final ScrollController _scrollController = ScrollController();
 
@@ -36,8 +44,19 @@ class _OfflineReaderScreenState extends State<OfflineReaderScreen> {
   void initState() {
     super.initState();
     _loadSettings(); // Tải cấu hình màu/font từ bộ nhớ
+    _loadChapters(); // Tải danh sách chương cho bottom sheet
     _loadChapter(widget.initialChapterIndex); // Tải chương truyện
     _scrollController.addListener(_onScroll);
+  }
+
+  Future<void> _loadChapters() async {
+    final db = IsarService();
+    final list = await db.getDownloadedChapters(widget.novelUrl);
+    if (mounted) {
+      setState(() {
+        _chapters = list;
+      });
+    }
   }
 
   // --- LƯU VỊ TRÍ CUỘN NGAY KHI ĐANG ĐỌC (debounce 500ms) ---
@@ -45,6 +64,40 @@ class _OfflineReaderScreenState extends State<OfflineReaderScreen> {
   // Scrollable con đã detach khỏi controller (hasClients luôn false),
   // nên dispose() gần như không bao giờ lưu thành công trên thực tế.
   void _onScroll() {
+    if (_scrollController.hasClients) {
+      final maxScroll = _scrollController.position.maxScrollExtent;
+      final currentScroll = _scrollController.offset;
+
+      // Lưu lại độ kéo kịch biên lớn nhất trong lúc kéo vuốt
+      if (currentScroll < 0) {
+        double pull = -currentScroll;
+        if (pull > _maxOverscrollTop) {
+          _maxOverscrollTop = pull;
+        }
+      } else if (maxScroll > 0 && currentScroll > maxScroll) {
+        double pull = currentScroll - maxScroll;
+        if (pull > _maxOverscrollBottom) {
+          _maxOverscrollBottom = pull;
+        }
+      } else if (maxScroll == 0 && currentScroll > 0) {
+        // Cho chương ngắn không có maxScrollExtent
+        double pull = currentScroll;
+        if (pull > _maxOverscrollBottom) {
+          _maxOverscrollBottom = pull;
+        }
+      }
+
+      double pct = 0.0;
+      if (maxScroll > 0) {
+        pct = (currentScroll / maxScroll * 100).clamp(0.0, 100.0);
+      }
+      if (pct.round() != _scrollPercent.round()) {
+        setState(() {
+          _scrollPercent = pct;
+        });
+      }
+    }
+
     _saveDebounce?.cancel();
     _saveDebounce = Timer(const Duration(milliseconds: 500), () {
       _saveCurrentScrollPosition();
@@ -87,7 +140,7 @@ class _OfflineReaderScreenState extends State<OfflineReaderScreen> {
     }
   }
 
-// --- HÀM LOAD CHƯƠNG TRUYỆN MỚI ---
+  // --- HÀM LOAD CHƯƠNG TRUYỆN MỚI ---
   Future<void> _loadChapter(int index) async {
     // Nếu đang đọc chương cũ, lưu vị trí cuộn của chương cũ lại trước khi chuyển
     await _saveCurrentScrollPosition();
@@ -109,16 +162,26 @@ class _OfflineReaderScreenState extends State<OfflineReaderScreen> {
       // ⚠️ MA THUẬT FIX LỖI CUỘN: Đợi 150 mili-giây để text vẽ xong chiều cao
       Future.delayed(const Duration(milliseconds: 150), () {
         if (mounted && _scrollController.hasClients) {
+          double targetScroll = 0;
           if (chapter.scrollOffset > 0) {
             // Lấy chiều cao tối đa, đề phòng offset vượt quá giới hạn
             double maxScroll = _scrollController.position.maxScrollExtent;
-            double targetScroll = chapter.scrollOffset > maxScroll ? maxScroll : chapter.scrollOffset;
+            targetScroll = chapter.scrollOffset > maxScroll ? maxScroll : chapter.scrollOffset;
 
             _scrollController.jumpTo(targetScroll);
           } else {
             // Chương mới toanh, nhảy lên đầu
             _scrollController.jumpTo(0);
           }
+
+          double maxScroll = _scrollController.position.maxScrollExtent;
+          double pct = 0.0;
+          if (maxScroll > 0) {
+            pct = (targetScroll / maxScroll * 100).clamp(0.0, 100.0);
+          }
+          setState(() {
+            _scrollPercent = pct;
+          });
         }
       });
     } else {
@@ -128,6 +191,106 @@ class _OfflineReaderScreenState extends State<OfflineReaderScreen> {
       }
     }
   }
+
+  void _showChaptersBottomSheet() {
+    int currentIdx = _chapters.indexWhere((c) => c.chapterIndex == _currentChapter?.chapterIndex);
+    final sheetScrollController = ScrollController();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (currentIdx != -1 && sheetScrollController.hasClients) {
+        double targetOffset = (currentIdx * 56.0);
+        if (sheetScrollController.position.hasContentDimensions) {
+          double viewportHeight = sheetScrollController.position.viewportDimension;
+          targetOffset = (currentIdx * 56.0) - (viewportHeight / 2) + 28.0;
+          double maxScroll = sheetScrollController.position.maxScrollExtent;
+          double minScroll = sheetScrollController.position.minScrollExtent;
+          targetOffset = targetOffset.clamp(minScroll, maxScroll);
+        }
+        sheetScrollController.jumpTo(targetOffset);
+      }
+    });
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: _bgColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20.0, horizontal: 16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Danh sách chương',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: _textColor,
+                ),
+              ),
+              const SizedBox(height: 15),
+              Expanded(
+                child: ListView.builder(
+                  controller: sheetScrollController,
+                  itemCount: _chapters.length,
+                  itemExtent: 56.0,
+                  itemBuilder: (context, index) {
+                    final ch = _chapters[index];
+                    bool isCurrent = ch.chapterIndex == _currentChapter?.chapterIndex;
+                    return ListTile(
+                      title: Text(
+                        ch.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isCurrent ? Colors.orange : _textColor,
+                          fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _loadChapter(ch.chapterIndex);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _checkPullToNavigate() {
+    if (_currentChapter == null) return;
+
+    const double threshold = 60.0; // Ngưỡng kéo vuốt nhạy hơn để dễ dùng (60px thay vì 80px)
+
+    if (_maxOverscrollTop >= threshold) {
+      _maxOverscrollTop = 0.0;
+      _maxOverscrollBottom = 0.0;
+      if (_currentChapter!.chapterIndex > 1) {
+        _loadChapter(_currentChapter!.chapterIndex - 1);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Đây là chương đầu tiên')),
+        );
+      }
+    } else if (_maxOverscrollBottom >= threshold) {
+      _maxOverscrollTop = 0.0;
+      _maxOverscrollBottom = 0.0;
+      _loadChapter(_currentChapter!.chapterIndex + 1);
+    }
+
+    // Luôn reset sau khi nhấc ngón tay để chuẩn bị cho lần kéo tiếp theo
+    _maxOverscrollTop = 0.0;
+    _maxOverscrollBottom = 0.0;
+  }
+
 
   // --- GIAO DIỆN HỘP THOẠI CẤU HÌNH (TEMPLATE) ---
   void _showSettingsBottomSheet() {
@@ -240,57 +403,72 @@ class _OfflineReaderScreenState extends State<OfflineReaderScreen> {
             : const SizedBox.shrink(),
         actions: [
           IconButton(
+            icon: const Icon(Icons.list),
+            tooltip: 'Danh sách chương',
+            onPressed: _showChaptersBottomSheet,
+          ),
+          IconButton(
             icon: const Icon(Icons.settings),
+            tooltip: 'Tùy chỉnh hiển thị',
             onPressed: _showSettingsBottomSheet, // Mở bảng Setting
-          )
+          ),
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 16.0),
+              child: Text(
+                '${_scrollPercent.round()}%',
+                style: TextStyle(
+                  color: _textColor.withOpacity(0.8),
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: _textColor))
           : _currentChapter == null
           ? Center(child: Text('Lỗi tải chương.', style: TextStyle(color: _textColor)))
-          : SingleChildScrollView(
-        controller: _scrollController, // Gắn bộ theo dõi cuộn vào đây
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Tiêu đề chương
-            Text(
-              _currentChapter!.title,
-              style: TextStyle(color: _textColor, fontSize: _fontSize + 4, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 20),
-            // Nội dung chương
-            Text(
-              _currentChapter!.content,
-              style: TextStyle(color: _textColor, fontSize: _fontSize, height: 1.6), // height 1.6 để giãn dòng dễ đọc
-            ),
-
-            const SizedBox(height: 40),
-            // KHỐI ĐIỀU HƯỚNG NEXT / PREV
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _currentChapter!.chapterIndex > 1
-                      ? () => _loadChapter(_currentChapter!.chapterIndex - 1)
-                      : null, // Disable nếu là chương 1
-                  icon: const Icon(Icons.arrow_back),
-                  label: const Text('Chương trước'),
+          : NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                if (notification is UserScrollNotification) {
+                  if (notification.direction != ScrollDirection.idle) {
+                    _isDragging = true;
+                    // Reset giá trị kéo biên khi bắt đầu kéo mới
+                    _maxOverscrollTop = 0.0;
+                    _maxOverscrollBottom = 0.0;
+                  } else if (notification.direction == ScrollDirection.idle && _isDragging) {
+                    _isDragging = false;
+                    _checkPullToNavigate();
+                  }
+                }
+                return false;
+              },
+              child: SingleChildScrollView(
+                controller: _scrollController, // Gắn bộ theo dõi cuộn vào đây
+                physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Tiêu đề chương
+                    Text(
+                      _currentChapter!.title,
+                      style: TextStyle(color: _textColor, fontSize: _fontSize + 4, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 20),
+                    // Nội dung chương
+                    Text(
+                      _currentChapter!.content,
+                      style: TextStyle(color: _textColor, fontSize: _fontSize, height: 1.6), // height 1.6 để giãn dòng dễ đọc
+                    ),
+                    const SizedBox(height: 40),
+                  ],
                 ),
-                ElevatedButton(
-                  onPressed: () => _loadChapter(_currentChapter!.chapterIndex + 1),
-                  child: const Row(
-                    children: [Text('Chương sau'), SizedBox(width: 8), Icon(Icons.arrow_forward)],
-                  ),
-                ),
-              ],
+              ),
             ),
-            const SizedBox(height: 40),
-          ],
-        ),
-      ),
     );
   }
 }

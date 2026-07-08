@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../data/local_database/isar_models.dart';
 import '../../../data/local_database/isar_service.dart';
@@ -20,10 +21,63 @@ class _OfflineNovelDetailScreenState extends State<OfflineNovelDetailScreen> {
   String _coverUrl = '';
   bool _isFavorite = false; // Quản lý trạng thái nút bấm
 
+  final ScrollController _scrollController = ScrollController();
+  final TextEditingController _searchController = TextEditingController();
+  int? _searchedChapterIndex;
+
   @override
   void initState() {
     super.initState();
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToChapter() {
+    final text = _searchController.text.trim();
+    final chapterNum = int.tryParse(text);
+    if (chapterNum == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vui lòng nhập số chương hợp lệ')),
+      );
+      return;
+    }
+
+    final index = _chapters.indexWhere((c) => c.chapterIndex == chapterNum);
+    if (index == -1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Chương này không tồn tại')),
+      );
+      return;
+    }
+
+    setState(() {
+      _searchedChapterIndex = chapterNum;
+    });
+
+    if (_scrollController.hasClients) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          double viewportHeight = _scrollController.position.viewportDimension;
+          double maxScroll = _scrollController.position.maxScrollExtent;
+          double minScroll = _scrollController.position.minScrollExtent;
+
+          double targetOffset = (index * 72.0) - (viewportHeight / 2) + 36.0;
+          targetOffset = targetOffset.clamp(minScroll, maxScroll);
+
+          _scrollController.animateTo(
+            targetOffset,
+            duration: const Duration(milliseconds: 500),
+            curve: Curves.easeInOut,
+          );
+        }
+      });
+    }
   }
 
   Future<void> _loadData() async {
@@ -31,7 +85,8 @@ class _OfflineNovelDetailScreenState extends State<OfflineNovelDetailScreen> {
     // 1. Lấy thông tin truyện
     final novels = await db.getDownloadedNovels();
     _novel = novels.firstWhere((n) => n.sourceUrl == widget.novelUrl);
-    _coverUrl = _novel!.coverUrl.isNotEmpty
+    final isLocal = _novel!.coverUrl.isNotEmpty && File(_novel!.coverUrl).existsSync();
+    _coverUrl = _novel!.coverUrl.isNotEmpty && !isLocal
         ? (_novel!.coverUrl.startsWith('http')
               ? _novel!.coverUrl
               : 'https://${_novel!.domain}${_novel!.coverUrl}')
@@ -100,17 +155,35 @@ class _OfflineNovelDetailScreenState extends State<OfflineNovelDetailScreen> {
               children: [
                 // Ảnh bìa
                 _novel!.coverUrl.isNotEmpty
-                    ? Image.network(
-                        _coverUrl,
-                        width: 100,
-                        height: 140,
-                        fit: BoxFit.cover,
-                        errorBuilder: (c, e, s) => Container(
-                          width: 100,
-                          height: 140,
-                          color: Colors.grey,
-                          child: const Icon(Icons.book),
-                        ),
+                    ? Builder(
+                        builder: (context) {
+                          final isLocal = File(_novel!.coverUrl).existsSync();
+                          return isLocal
+                              ? Image.file(
+                                  File(_novel!.coverUrl),
+                                  width: 100,
+                                  height: 140,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (c, e, s) => Container(
+                                    width: 100,
+                                    height: 140,
+                                    color: Colors.grey,
+                                    child: const Icon(Icons.book),
+                                  ),
+                                )
+                              : Image.network(
+                                  _coverUrl,
+                                  width: 100,
+                                  height: 140,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (c, e, s) => Container(
+                                    width: 100,
+                                    height: 140,
+                                    color: Colors.grey,
+                                    child: const Icon(Icons.book),
+                                  ),
+                                );
+                        },
                       )
                     : Container(
                         width: 100,
@@ -217,6 +290,35 @@ class _OfflineNovelDetailScreenState extends State<OfflineNovelDetailScreen> {
               ],
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.only(left: 16.0, right: 16.0, bottom: 12.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      hintText: 'Cuộn tới chương',
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: _scrollToChapter,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  ),
+                  child: const Text('Tìm'),
+                ),
+              ],
+            ),
+          ),
           const Divider(thickness: 2),
 
           // KHỐI 2: DANH SÁCH CHƯƠNG ĐÃ TẢI
@@ -224,23 +326,29 @@ class _OfflineNovelDetailScreenState extends State<OfflineNovelDetailScreen> {
           // Điều này giúp ListView hiểu là nó chỉ được phép cuộn trong khoảng trống còn lại của màn hình
           Expanded(
             child: ListView.builder(
+              controller: _scrollController,
+              itemExtent: 72.0,
               itemCount: _chapters.length,
               itemBuilder: (context, index) {
                 final chapter = _chapters[index];
-                bool isCurrentReading =
+                final isSearched = chapter.chapterIndex == _searchedChapterIndex;
+                final isCurrentReading =
                     chapter.chapterIndex == _novel!.lastReadChapterIndex;
 
                 return ListTile(
+                  tileColor: isSearched ? Colors.blue.shade50 : null,
                   title: Text(
                     chapter.title,
                     maxLines: 2,
                     overflow:
                         TextOverflow.ellipsis, // Cắt chữ chương nếu quá dài
                     style: TextStyle(
-                      fontWeight: isCurrentReading
+                      fontWeight: (isSearched || isCurrentReading)
                           ? FontWeight.bold
                           : FontWeight.normal,
-                      color: isCurrentReading ? Colors.orange : Colors.black,
+                      color: isSearched
+                          ? Colors.blue.shade700
+                          : (isCurrentReading ? Colors.orange : Colors.black),
                     ),
                   ),
                   trailing: const Icon(

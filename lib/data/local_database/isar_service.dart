@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:http/http.dart' as http;
 import 'package:isar/isar.dart';
 import 'package:path_provider/path_provider.dart';
 import 'isar_models.dart';
@@ -13,12 +15,14 @@ class IsarService {
   }
 
   Future<Isar> openDB() async {
+    // Trì hoãn mở DB 600ms để nhường luồng cho UI vẽ xong frame đầu tiên trên máy yếu
+    await Future.delayed(const Duration(milliseconds: 600));
     if (Isar.instanceNames.isEmpty) {
       final dir = await getApplicationDocumentsDirectory();
       return await Isar.open(
         [NovelLocalSchema, ChapterLocalSchema, DownloadTaskLocalSchema],
         directory: dir.path,
-        inspector: true, // Cho phép xem data trên web khi debug
+        inspector: false, // Tắt inspector để tránh crash/port block trên thiết bị thật
       );
     }
     return Future.value(Isar.getInstance());
@@ -30,6 +34,14 @@ class IsarService {
     await isar.writeTxn(() async {
       await isar.novelLocals.put(novel);
     });
+  }
+
+  Future<NovelLocal?> getNovel(String sourceUrl) async {
+    final isar = await db;
+    return await isar.novelLocals
+        .filter()
+        .sourceUrlEqualTo(sourceUrl)
+        .findFirst();
   }
 
   // --- 2. LƯU NỘI DUNG 1 CHƯƠNG ---
@@ -166,10 +178,40 @@ class IsarService {
         .findFirst();
     if (novel != null) {
       novel.isFavorite = isFav;
+      if (isFav && novel.coverUrl.isNotEmpty && !novel.coverUrl.startsWith('/') && !novel.coverUrl.contains('app_flutter/covers') && !File(novel.coverUrl).existsSync()) {
+        final localPath = await downloadCoverLocally(novel.coverUrl, novel.sourceUrl, novel.domain);
+        if (localPath.isNotEmpty) {
+          novel.coverUrl = localPath;
+        }
+      }
       await isar.writeTxn(() async {
         await isar.novelLocals.put(novel);
       });
     }
+  }
+
+  Future<String> downloadCoverLocally(String coverUrl, String sourceUrl, String domain) async {
+    try {
+      if (coverUrl.isEmpty) return '';
+      final cleanUrl = coverUrl.startsWith('http') ? coverUrl : 'https://$domain$coverUrl';
+      
+      final response = await http.get(Uri.parse(cleanUrl));
+      if (response.statusCode == 200) {
+        final dir = await getApplicationDocumentsDirectory();
+        final coversDir = Directory('${dir.path}/covers');
+        if (!coversDir.existsSync()) {
+          coversDir.createSync(recursive: true);
+        }
+        
+        final filename = '${sourceUrl.hashCode}.jpg';
+        final file = File('${coversDir.path}/$filename');
+        await file.writeAsBytes(response.bodyBytes);
+        return file.path;
+      }
+    } catch (e) {
+      print('Lỗi tải ảnh bìa local: $e');
+    }
+    return coverUrl;
   }
 
   Future<Set<int>> getDownloadedChapterIndexes(String novelUrl) async {

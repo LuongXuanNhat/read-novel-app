@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter__first_app/data/scrapers/base_scraper.dart';
 import 'package:flutter__first_app/data/scrapers/metruyenchu_scraper.dart';
 import 'package:flutter__first_app/data/scrapers/truyenhay_scraper.dart';
@@ -33,13 +34,25 @@ class DownloadManager {
       throw Exception('Không hỗ trợ nguồn này');
     }
 
+    final existing = await _dbService.getNovel(novel.sourceUrl);
+
+    String localCoverPath = novel.coverUrl;
+    if (novel.coverUrl.isNotEmpty && !novel.coverUrl.startsWith('/') && !novel.coverUrl.contains('app_flutter/covers') && !File(novel.coverUrl).existsSync()) {
+      localCoverPath = await _dbService.downloadCoverLocally(novel.coverUrl, novel.sourceUrl, novel.domain);
+    }
+
     final novelLocal = NovelLocal()
       ..title = novel.title
       ..author = novel.author
-      ..coverUrl = novel.coverUrl
+      ..coverUrl = localCoverPath
       ..sourceUrl = novel.sourceUrl
       ..domain = novel.domain
-      ..lastAccessed = DateTime.now();
+      ..lastAccessed = DateTime.now()
+      ..lastReadChapterIndex = existing?.lastReadChapterIndex ?? 0
+      ..isFavorite = existing?.isFavorite ?? false;
+    if (existing != null) {
+      novelLocal.id = existing.id;
+    }
     await _dbService.saveNovel(novelLocal);
 
     final task = DownloadTaskLocal()

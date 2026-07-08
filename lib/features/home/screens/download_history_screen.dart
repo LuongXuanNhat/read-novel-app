@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../data/local_database/isar_models.dart';
 import '../../../data/local_database/isar_service.dart';
@@ -186,33 +187,47 @@ class _DownloadHistoryScreenState extends State<DownloadHistoryScreen> {
                       });
                     },
                   )
-                      : SizedBox(
-                    width: 40,
-                    height: 60,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: novel.coverUrl.isNotEmpty
-                          ? Image.network(
-                        novel.coverUrl.startsWith('http')
-                            ? novel.coverUrl
-                            : 'https://${novel.domain}${novel.coverUrl}',
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            color: Colors.grey.shade300,
-                            child: const Icon(
-                              Icons.book,
-                              color: Colors.grey,
-                            ),
-                          );
-                        },
-                      )
-                          : Container(
-                        color: Colors.grey.shade300,
-                        child: const Icon(Icons.book, color: Colors.grey),
-                      ),
-                    ),
-                  ),
+                      : Builder(
+                          builder: (context) {
+                            final isLocal = novel.coverUrl.isNotEmpty && File(novel.coverUrl).existsSync();
+                            final coverUrl = novel.coverUrl.isNotEmpty && !isLocal
+                                ? (novel.coverUrl.startsWith('http')
+                                    ? novel.coverUrl
+                                    : 'https://${novel.domain}${novel.coverUrl}')
+                                : '';
+
+                            return SizedBox(
+                              width: 40,
+                              height: 60,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(4),
+                                child: novel.coverUrl.isNotEmpty
+                                    ? (isLocal
+                                        ? Image.file(
+                                            File(novel.coverUrl),
+                                            fit: BoxFit.cover,
+                                          )
+                                        : Image.network(
+                                            coverUrl,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (context, error, stackTrace) {
+                                              return Container(
+                                                color: Colors.grey.shade300,
+                                                child: const Icon(
+                                                  Icons.book,
+                                                  color: Colors.grey,
+                                                ),
+                                              );
+                                            },
+                                          ))
+                                    : Container(
+                                        color: Colors.grey.shade300,
+                                        child: const Icon(Icons.book, color: Colors.grey),
+                                      ),
+                              ),
+                            );
+                          },
+                        ),
                   title: Text(novel.title, style: const TextStyle(fontWeight: FontWeight.bold)),
                   subtitle: Text('Đang đọc: Chương ${novel.lastReadChapterIndex}'),
 
